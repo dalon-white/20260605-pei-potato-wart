@@ -1,0 +1,51 @@
+random_seed: 1234
+
+alpha: 0.05
+p0: 0.001
+scenario_p: [0.001, 0.01, 0.1]
+
+shipments_per_year:
+  mean: 4600
+  dispersion: 0.3
+
+shipment_mass_kg:
+  dist: "lognormal"
+  mean: 7700
+  sd: 0.8
+  min: 500
+  max: 25000
+
+unit_size_oz:
+  dist: "lognormal"
+  mean: 12
+  sd: 0.6
+  min: 2
+  max: 32
+
+prevalence:
+  mu: 0.001
+  kappa: 500
+  scenarios:
+    - {mu: 0.001, kappa: 500}
+    - {mu: 0.01,  kappa: 300}
+    - {mu: 0.1,   kappa: 200}
+
+upstream_screen:
+  Se_vis: 0.80
+  Sp_vis: 1.00
+  f_asym_range: [0.05, 0.25]
+  f_asym_fixed: null
+
+border_testing:
+  Se_mol: 1.00
+  Se_subsample: 1.00
+
+tiers:
+  N_small_threshold: 300
+  use_hypergeom_for_medium: true
+  use_binomial_floor_for_large: true
+
+outputs:
+  save_csv: true
+  save_plots: true
+  save_report: true
