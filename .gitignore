@@ -1,0 +1,6 @@
+.Rhistory
+.RData
+.Rproj.user/
+outputs/csv/*.csv
+outputs/figures/*.png
+outputs/report.md
