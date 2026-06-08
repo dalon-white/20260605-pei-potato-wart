@@ -33,7 +33,7 @@ This repository provides a complete R analysis workflow to design and simulate a
 
 `simulate_year()` performs Monte Carlo at shipment level, including:
 1. Shipment count generation (overdispersed)
-2. Shipment mass and unit-size draws → unit count
+2. Shipment mass draw and mean unit size → unit count
 3. Beta-binomial prevalence/clustering
 4. Upstream visual screening conditioning
 5. Border sampling and detection outcome

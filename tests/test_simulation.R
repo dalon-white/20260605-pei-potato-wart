@@ -7,6 +7,9 @@ source("R/metrics.R")
 source("R/simulation.R")
 
 cfg <- load_cfg("config/default.yaml")
+expected_units <- units_per_shipment(shipment_kg = 1000, unit_oz = cfg$unit_size_oz$mean)
+stopifnot(identical(shipment_unit_count(shipment_kg = 1000, unit_cfg = cfg$unit_size_oz), expected_units))
+
 cfg$shipments_per_year$mean <- 200
 cfg$shipments_per_year$dispersion <- 0.1
 cfg$prevalence$mu <- 0.1
@@ -31,5 +34,13 @@ res_low <- simulate_year(seed = 456, cfg = cfg_low, scenario = list(mu = 0.1, ka
 risk_high <- res_high$annual_summary$prob_any_infected_pass_undetected[[1]]
 risk_low <- res_low$annual_summary$prob_any_infected_pass_undetected[[1]]
 stopifnot(risk_high <= risk_low)
+
+res_named_vec <- simulate_year(seed = 789, cfg = cfg, scenario = c(mu = 0.1, kappa = 200, label = "vec"))
+stopifnot(is.data.frame(res_named_vec$annual_summary), nrow(res_named_vec$annual_summary) == 1)
+
+res_scalar <- simulate_year(seed = 790, cfg = cfg, scenario = 0.1)
+stopifnot(is.data.frame(res_scalar$annual_summary), nrow(res_scalar$annual_summary) == 1)
+stopifnot("mean_unit_size_oz" %in% names(res_scalar$shipment_level))
+stopifnot(!("unit_size_oz" %in% names(res_scalar$shipment_level)))
 
 message("test_simulation.R passed")

@@ -5,6 +5,17 @@
 #' @param scenario Scenario list with mu, kappa, and label.
 #' @return One-row tibble.
 simulate_shipment <- function(cfg, scenario) {
+  if (is.atomic(scenario)) {
+    scenario <- as.list(scenario)
+  }
+  if (!is.list(scenario)) {
+    stop("`scenario` must be a list or named atomic vector.")
+  }
+
+  mu <- as.numeric(scenario$mu %||% cfg$prevalence$mu)
+  kappa <- as.numeric(scenario$kappa %||% cfg$prevalence$kappa)
+  label <- as.character(scenario$label %||% sprintf("mu=%.4f_kappa=%s", mu, kappa))
+
   mass <- r_trunc_lognorm(
     n = 1,
     mean = cfg$shipment_mass_kg$mean,
@@ -13,16 +24,9 @@ simulate_shipment <- function(cfg, scenario) {
     max = cfg$shipment_mass_kg$max
   )
 
-  unit_oz <- r_trunc_lognorm(
-    n = 1,
-    mean = cfg$unit_size_oz$mean,
-    sd = cfg$unit_size_oz$sd,
-    min = cfg$unit_size_oz$min,
-    max = cfg$unit_size_oz$max
-  )
-
-  N_units <- units_per_shipment(shipment_kg = mass, unit_oz = unit_oz)
-  ab <- alpha_beta_from_mean_conc(mu = scenario$mu, kappa = scenario$kappa)
+  mean_unit_size_oz <- as.numeric(cfg$unit_size_oz$mean)
+  N_units <- shipment_unit_count(shipment_kg = mass, unit_cfg = cfg$unit_size_oz)
+  ab <- alpha_beta_from_mean_conc(mu = mu, kappa = kappa)
   p_s <- stats::rbeta(1, shape1 = ab$alpha, shape2 = ab$beta)
   infected_n <- stats::rbinom(1, size = N_units, prob = p_s)
   infected_idx <- if (infected_n > 0) sample.int(N_units, infected_n) else integer(0)
@@ -49,11 +53,11 @@ simulate_shipment <- function(cfg, scenario) {
   pass_undetected <- infected_present && !border$detected
 
   tibble::tibble(
-    scenario = scenario$label,
-    mu = scenario$mu,
-    kappa = scenario$kappa,
+    scenario = label,
+    mu = mu,
+    kappa = kappa,
     shipment_mass_kg = mass,
-    unit_size_oz = unit_oz,
+    mean_unit_size_oz = mean_unit_size_oz,
     N_units = as.integer(N_units),
     N_asym = as.integer(up$N_asym),
     p_shipment = p_s,
@@ -76,15 +80,31 @@ simulate_shipment <- function(cfg, scenario) {
 simulate_year <- function(seed, cfg, scenario = NULL) {
   set_seed(seed)
 
-  sc <- if (is.null(scenario)) {
-    list(mu = cfg$prevalence$mu, kappa = cfg$prevalence$kappa, label = sprintf("mu=%.4f_kappa=%s", cfg$prevalence$mu, cfg$prevalence$kappa))
-  } else {
-    list(
-      mu = scenario$mu %||% cfg$prevalence$mu,
-      kappa = scenario$kappa %||% cfg$prevalence$kappa,
-      label = scenario$label %||% sprintf("mu=%.4f_kappa=%s", scenario$mu %||% cfg$prevalence$mu, scenario$kappa %||% cfg$prevalence$kappa)
-    )
+  normalize_scenario <- function(scn, cfg) {
+    if (is.null(scn)) {
+      return(list(
+        mu = cfg$prevalence$mu,
+        kappa = cfg$prevalence$kappa,
+        label = sprintf("mu=%.4f_kappa=%s", cfg$prevalence$mu, cfg$prevalence$kappa)
+      ))
+    }
+
+    if (is.atomic(scn)) {
+      scn <- as.list(scn)
+    }
+
+    if (!is.list(scn)) {
+      stop("`scenario` must be NULL, a list, or a named atomic vector.")
+    }
+
+    mu <- scn$mu %||% cfg$prevalence$mu
+    kappa <- scn$kappa %||% cfg$prevalence$kappa
+    label <- scn$label %||% sprintf("mu=%.4f_kappa=%s", mu, kappa)
+
+    list(mu = as.numeric(mu), kappa = as.numeric(kappa), label = as.character(label))
   }
+
+  sc <- normalize_scenario(scenario, cfg)
 
   n_shipments <- max(1L, r_overdispersed_counts(
     mean = cfg$shipments_per_year$mean,

@@ -40,9 +40,30 @@ pick_kappa <- function(cfg, mu) {
   if (is.null(cfg$prevalence$scenarios) || length(cfg$prevalence$scenarios) == 0) {
     return(cfg$prevalence$kappa)
   }
-  mus <- vapply(cfg$prevalence$scenarios, function(x) x$mu, numeric(1))
+
+  get_field_num <- function(x, field) {
+    if (is.list(x) && !is.null(x[[field]])) {
+      return(as.numeric(x[[field]]))
+    }
+    if (is.atomic(x)) {
+      if (!is.null(names(x)) && field %in% names(x)) {
+        return(as.numeric(x[[field]]))
+      }
+      if (field == "mu" && length(x) == 1) {
+        return(as.numeric(x[[1]]))
+      }
+    }
+    NA_real_
+  }
+
+  mus <- vapply(cfg$prevalence$scenarios, function(x) get_field_num(x, "mu"), numeric(1))
+  if (all(is.na(mus))) {
+    return(cfg$prevalence$kappa)
+  }
   idx <- which.min(abs(mus - mu))
-  cfg$prevalence$scenarios[[idx]]$kappa
+
+  kappa_i <- get_field_num(cfg$prevalence$scenarios[[idx]], "kappa")
+  if (is.na(kappa_i)) cfg$prevalence$kappa else kappa_i
 }
 
 args <- parse_args(commandArgs(trailingOnly = TRUE))
@@ -55,7 +76,10 @@ fig_dir <- file.path(out_dir, "figures")
 dir.create(csv_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 
-scenario_ps <- args$scenarios %||% cfg$scenario_p
+scenario_ps <- as.numeric(args$scenarios %||% cfg$scenario_p)
+if (any(!is.finite(scenario_ps))) {
+  stop("`scenario_ps` must be numeric and finite.")
+}
 
 all_shipments <- list()
 all_annual <- list()

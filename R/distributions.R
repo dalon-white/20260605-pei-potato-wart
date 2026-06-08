@@ -30,6 +30,15 @@ units_per_shipment <- function(shipment_kg, unit_oz) {
   as.integer(pmax(1, units))
 }
 
+#' Derive units per shipment from shipment mass and mean unit weight.
+#' @param shipment_kg Shipment mass in kilograms.
+#' @param unit_cfg Unit-size configuration with mean, sd, min, and max.
+#' @return Integer unit counts.
+shipment_unit_count <- function(shipment_kg, unit_cfg) {
+  stopifnot(is.list(unit_cfg), !is.null(unit_cfg$mean), unit_cfg$mean > 0)
+  units_per_shipment(shipment_kg = shipment_kg, unit_oz = unit_cfg$mean)
+}
+
 #' Draw overdispersed shipment counts using negative binomial.
 #' @param mean Mean count.
 #' @param dispersion Dispersion parameter where size = 1/dispersion.
