@@ -5,6 +5,7 @@
 #' @param scenario Scenario list with mu, kappa, and label.
 #' @return One-row tibble.
 simulate_shipment <- function(cfg, scenario) {
+  # scenario is from the cfg; various scenarios are selected. They contain mu (prevalence mean) and kappa (overdispersion) that define the underlying infection distribution in the shipment, as well as a label for reporting. The scenario can be a list or a named atomic vector (e.g., from yaml), and it can override the default mu and kappa from the cfg. If scenario is NULL, then defaults from cfg are used.
   if (is.atomic(scenario)) {
     scenario <- as.list(scenario)
   }
@@ -12,10 +13,11 @@ simulate_shipment <- function(cfg, scenario) {
     stop("`scenario` must be a list or named atomic vector.")
   }
 
-  mu <- as.numeric(scenario$mu %||% cfg$prevalence$mu)
-  kappa <- as.numeric(scenario$kappa %||% cfg$prevalence$kappa)
-  label <- as.character(scenario$label %||% sprintf("mu=%.4f_kappa=%s", mu, kappa))
+  mu <- as.numeric(scenario$mu %||% cfg$prevalence$mu) # if the value is not supplied for the scenario, it will fallback to the default mu
+  kappa <- as.numeric(scenario$kappa %||% cfg$prevalence$kappa) # if the value is not supplied for the scenario, it will fallback to the default kappa
+  label <- as.character(scenario$label %||% sprintf("mu=%.4f_kappa=%s", mu, kappa)) # if it is not named, it will create one
 
+  # randomly sample for the shipment size using the appropriate distribution and parameters from config
   mass <- r_trunc_lognorm(
     n = 1,
     mean = cfg$shipment_mass_kg$mean,
@@ -24,33 +26,50 @@ simulate_shipment <- function(cfg, scenario) {
     max = cfg$shipment_mass_kg$max
   )
 
+  # gather mean unit size from config, then calculate the numebr of units using the total mass and mean unit size
   mean_unit_size_oz <- as.numeric(cfg$unit_size_oz$mean)
   N_units <- shipment_unit_count(shipment_kg = mass, unit_cfg = cfg$unit_size_oz)
+
+  # calculate the distribution shape of the Beta distribution for shipment-level prevalence
+    # large Kappa: beta is tight around mu (shipment prevalence is likely close to mu); small kappa: beta is wide around mu (shipment prevalence is more variable, with more chance of being much higher or lower than mu)
+      # mu = 0.01, kappa = 1000 -> beta is very tight around 0.01, so most shipments will have prevalence close to 1%
+      # mu = 0.01, kappa = 1 -> beta is very wide, so shipments could have prevalence anywhere from near 0% to much higher than 1%
   ab <- alpha_beta_from_mean_conc(mu = mu, kappa = kappa)
+
+  # randomly sample beta distributino to get the actual prevalence for this shipment
   p_s <- stats::rbeta(1, shape1 = ab$alpha, shape2 = ab$beta)
+  # sample from binomial to get the number of infected units
   infected_n <- stats::rbinom(1, size = N_units, prob = p_s)
+  # then randomly assign which units are infected
   infected_idx <- if (infected_n > 0) sample.int(N_units, infected_n) else integer(0)
 
   up <- condition_to_border(N_units = N_units, infected_idx = infected_idx, cfg = cfg)
   se <- Se_eff(cfg)
 
-  n_required <- border_required_n(
-    N_asym = up$N_asym,
-    p0 = cfg$p0,
-    alpha = cfg$alpha,
-    Se_eff = se,
-    tiers_cfg = cfg$tiers
-  )
+  border <- list(samples_taken = 0L, detected = FALSE)
+  n_required <- 0L
+  infected_present <- FALSE
+  pass_undetected <- FALSE
 
-  border <- apply_border_sampling(
-    N_asym = up$N_asym,
-    n = n_required,
-    infected_indices = up$infected_border,
-    Se_eff = se
-  )
+  if (isTRUE(up$shipment_reaches_border)) {
+    n_required <- border_required_n(
+      N_asym = up$N_asym,
+      p0 = cfg$p0,
+      alpha = cfg$alpha,
+      Se_eff = se,
+      tiers_cfg = cfg$tiers
+    )
 
-  infected_present <- length(up$infected_border) > 0
-  pass_undetected <- infected_present && !border$detected
+    border <- apply_border_sampling(
+      N_asym = up$N_asym,
+      n = n_required,
+      infected_indices = up$infected_border,
+      Se_eff = se
+    )
+
+    infected_present <- length(up$infected_border) > 0
+    pass_undetected <- infected_present && !border$detected
+  }
 
   tibble::tibble(
     scenario = label,
@@ -62,10 +81,16 @@ simulate_shipment <- function(cfg, scenario) {
     N_asym = as.integer(up$N_asym),
     p_shipment = p_s,
     infected_count_pre_upstream = as.integer(infected_n),
+    shipment_filtered_upstream = as.logical(up$shipment_filtered_upstream),
+    shipment_reaches_border = as.logical(up$shipment_reaches_border),
+    upstream_true_detected_count = as.integer(up$upstream_true_detected_count),
+    upstream_false_positive_count = as.integer(up$upstream_false_positive_count),
+    upstream_detected = as.logical(up$upstream_true_detected_count > 0),
     infected_count_border = as.integer(length(up$infected_border)),
     f_asym = up$f_asym,
     n_required = as.integer(n_required),
     samples_taken = as.integer(border$samples_taken),
+    border_detected = as.logical(border$detected),
     detected = as.logical(border$detected),
     infected_present = as.logical(infected_present),
     pass_undetected = as.logical(pass_undetected)
@@ -114,6 +139,6 @@ simulate_year <- function(seed, cfg, scenario = NULL) {
   shipment_df <- purrr::map_dfr(seq_len(n_shipments), ~simulate_shipment(cfg = cfg, scenario = sc))
   list(
     shipment_level = shipment_df,
-    annual_summary = annual_metrics(shipment_df)
+    annual_summary = annual_metrics(shipment_df, shipments_possible_basis = cfg$shipments_per_year$mean)
   )
 }

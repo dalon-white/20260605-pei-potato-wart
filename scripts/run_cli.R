@@ -36,6 +36,9 @@ parse_args <- function(args) {
   parsed
 }
 
+# What it does: Chooses dispersion parameter kappa for each mu scenario, with fallback to a default.
+# Why it matters: Kappa controls heterogeneity/overdispersion in infection prevalence, which strongly affects undetected-pass risk.
+# Limitation: It picks the nearest mu scenario rather than interpolating; this can create step changes and potentially misstate risk between defined points.
 pick_kappa <- function(cfg, mu) {
   if (is.null(cfg$prevalence$scenarios) || length(cfg$prevalence$scenarios) == 0) {
     return(cfg$prevalence$kappa)
@@ -66,16 +69,20 @@ pick_kappa <- function(cfg, mu) {
   if (is.na(kappa_i)) cfg$prevalence$kappa else kappa_i
 }
 
+
+# Load and finalize runtime configuration:
 args <- parse_args(commandArgs(trailingOnly = TRUE))
 cfg <- load_cfg(args$config)
 if (!is.null(args$seed)) cfg$random_seed <- args$seed
 
+# Define output directories and ensure they exist:
 out_dir <- args$outputs_dir
 csv_dir <- file.path(out_dir, "csv")
 fig_dir <- file.path(out_dir, "figures")
 dir.create(csv_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 
+# Validate scenario prevalence values:
 scenario_ps <- as.numeric(args$scenarios %||% cfg$scenario_p)
 if (any(!is.finite(scenario_ps))) {
   stop("`scenario_ps` must be numeric and finite.")
@@ -84,6 +91,10 @@ if (any(!is.finite(scenario_ps))) {
 all_shipments <- list()
 all_annual <- list()
 
+
+# What it does: For each prevalence p, builds scenario with chosen kappa, runs simulate_year, and stores shipment-level and annual summaries.
+# Why it matters: This is the key estimator: it generates simulated outcomes under the protocol and quantifies how often infected shipments pass undetected.
+# Limitation: Apparent single run per scenario seed sequence; unless simulate_year internally performs enough Monte Carlo replication, uncertainty may be under-characterized
 for (i in seq_along(scenario_ps)) {
   p <- scenario_ps[[i]]
   scenario <- list(mu = p, kappa = pick_kappa(cfg, p), label = sprintf("p=%.4f", p))
@@ -92,11 +103,18 @@ for (i in seq_along(scenario_ps)) {
   all_annual[[i]] <- sim$annual_summary
 }
 
+# What it does: Combines scenario outputs; computes required sampling table and OC curve table based on effective sensitivity.
+# Why it matters: Translates raw simulations into operational decision support (how much to sample, and expected detection performance).
+# Limitation: OC curve n-grid increments by 25 may be coarse; may miss fine threshold behavior near decision boundaries.
 shipment_level <- dplyr::bind_rows(all_shipments)
 annual_summary <- dplyr::bind_rows(all_annual)
 required_tbl <- required_n_table(shipment_level)
+upstream_tbl <- upstream_filtering_table(shipment_level, shipments_possible_basis = cfg$shipments_per_year$mean)
 oc_tbl <- oc_curve_table(p_values = scenario_ps, n_values = seq(0, max(shipment_level$n_required), by = 25), Se_eff = Se_eff(cfg))
 
+# What it does: Perturbs key parameters (visual sensitivity, molecular sensitivity, subsample sensitivity, asymptomatic fraction, kappa), reruns simulation, and records annual undetected risk metric.
+# Why it matters: Shows robustness of protection likelihood to uncertain assumptions; essential for policy confidence.
+# Limitation: Univariate sensitivity only; no joint uncertainty, interactions, or probabilistic calibration across parameters.
 sensitivity_runs <- list(
   list(parameter = "Se_vis", values = c(0.6, 0.8, 0.95)),
   list(parameter = "Se_mol", values = c(0.7, 0.85, 1.0)),
@@ -129,9 +147,11 @@ sensitivity_tbl <- purrr::map_dfr(sensitivity_runs, function(run) {
   })
 })
 
+# Conditionally write tabular results and markdown report
 if (isTRUE(cfg$outputs$save_csv)) {
   readr::write_csv(shipment_level, file.path(csv_dir, "shipment_level.csv"))
   readr::write_csv(annual_summary, file.path(csv_dir, "annual_summary.csv"))
+  readr::write_csv(upstream_tbl, file.path(csv_dir, "upstream_filtering_summary.csv"))
 }
 
 if (isTRUE(cfg$outputs$save_plots)) {
@@ -147,8 +167,27 @@ if (isTRUE(cfg$outputs$save_report)) {
     required_tbl = required_tbl,
     oc_tbl = oc_tbl,
     sensitivity_tbl = sensitivity_tbl,
+    upstream_tbl = upstream_tbl,
     output_path = file.path(out_dir, "report.md")
   )
 }
 
 message("Simulation complete. Outputs in: ", normalizePath(out_dir))
+
+
+# The script estimates likelihood of protection indirectly through detection failure risk. In practice, you interpret protection as:
+# Lower prob_any_infected_pass_undetected implies higher protection likelihood for Commodity B.
+#    - This is the key metric for decision-makers: it quantifies the risk that an infected shipment slips through the protocol undetected, which directly relates to biosecurity risk.
+# Required sample size tables and OC curves inform operational decisions on how much sampling is needed to achieve certain risk thresholds, given the effective sensitivity of the testing protocol.
+# Sensitivity analyses show how robust the protection likelihood is to key assumptions, which is crucial for confidence in the protocol under real-world uncertainty. 
+
+# So the script gets closer to the question by:
+# 1. Simulating protocol performance under plausible prevalence conditions.
+# 2. Quantifying undetected infection risk annually and by sensitivity assumptions.
+# 3. Delivering tables/plots/report to compare scenarios and stress-test assumptions.
+
+# Main methodological limits for the exact question:
+# 1. It quantifies biosecurity risk, not direct Commodity B economic outcomes (market access, losses avoided, etc.).
+# 2. It does not visibly output confidence intervals in this script layer.
+# 3. Sensitivity is deterministic and one-factor-at-a-time, not full probabilistic uncertainty propagation.
+# 4. Validity depends heavily on assumptions in config and sourced model functions.

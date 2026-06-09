@@ -6,9 +6,20 @@
 #' @param required_tbl Required n table.
 #' @param oc_tbl OC curve table.
 #' @param sensitivity_tbl Sensitivity table.
+#' @param upstream_tbl Upstream filtering summary table.
 #' @param output_path Output markdown path.
 #' @return Output path.
-write_report <- function(cfg, annual_summary, required_tbl, oc_tbl, sensitivity_tbl, output_path = "outputs/report.md") {
+write_report <- function(cfg, annual_summary, required_tbl, oc_tbl, sensitivity_tbl, upstream_tbl = NULL, output_path = "outputs/report.md") {
+  upstream_lines <- if (is.null(upstream_tbl)) {
+    character(0)
+  } else {
+    c(
+      "",
+      "## Upstream shipment filtering (scenario summary)",
+      paste(capture.output(print(upstream_tbl)), collapse = "\n")
+    )
+  }
+
   lines <- c(
     "# Border Sampling Analysis Report",
     "",
@@ -41,6 +52,7 @@ write_report <- function(cfg, annual_summary, required_tbl, oc_tbl, sensitivity_
     "",
     "## Sensitivity analysis (head)",
     paste(capture.output(print(utils::head(sensitivity_tbl, 20))), collapse = "\n"),
+    upstream_lines,
     "",
     "## Figures",
     "- ![](figures/required_n_vs_N.png)",

@@ -43,4 +43,26 @@ stopifnot(is.data.frame(res_scalar$annual_summary), nrow(res_scalar$annual_summa
 stopifnot("mean_unit_size_oz" %in% names(res_scalar$shipment_level))
 stopifnot(!("unit_size_oz" %in% names(res_scalar$shipment_level)))
 
+cfg_up <- load_cfg("config/default.yaml")
+cfg_up$upstream_screen$f_asym_fixed <- 0
+cfg_up$upstream_screen$Se_vis <- 1
+up_true <- condition_to_border(N_units = 100, infected_idx = c(1L, 2L, 3L), cfg = cfg_up)
+stopifnot(isTRUE(up_true$shipment_filtered_upstream))
+stopifnot(!isTRUE(up_true$shipment_reaches_border))
+stopifnot(up_true$N_asym == 0L)
+
+cfg_fp <- load_cfg("config/default.yaml")
+cfg_fp$upstream_screen$f_asym_fixed <- 0
+cfg_fp$upstream_screen$Se_vis <- 0
+cfg_fp$upstream_screen$Sp_vis <- 0
+up_fp <- condition_to_border(N_units = 100, infected_idx = integer(0), cfg = cfg_fp)
+stopifnot(!isTRUE(up_fp$shipment_filtered_upstream))
+stopifnot(isTRUE(up_fp$shipment_reaches_border))
+stopifnot(up_fp$N_asym == 100L)
+
+sim_cols <- names(res_scalar$shipment_level)
+stopifnot("upstream_detected" %in% sim_cols)
+stopifnot("border_detected" %in% sim_cols)
+stopifnot(all(res_scalar$shipment_level$detected == res_scalar$shipment_level$border_detected))
+
 message("test_simulation.R passed")
