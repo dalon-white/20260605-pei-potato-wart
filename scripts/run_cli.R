@@ -21,7 +21,8 @@ parse_args <- function(args) {
     config = "config/default.yaml",
     seed = NULL,
     outputs_dir = "outputs",
-    scenarios = NULL
+    scenarios = NULL,
+    years = NULL
   )
   i <- 1
   while (i <= length(args)) {
@@ -31,6 +32,7 @@ parse_args <- function(args) {
     if (key == "--seed") parsed$seed <- as.integer(val)
     if (key == "--outputs_dir") parsed$outputs_dir <- val
     if (key == "--scenarios") parsed$scenarios <- as.numeric(strsplit(val, ",")[[1]])
+    if (key == "--years") parsed$years <- as.integer(val)
     i <- i + 2
   }
   parsed
@@ -150,18 +152,47 @@ dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 # Build runtime scenarios directly from prevalence.scenarios unless overridden by --scenarios:
 runtime_scenarios <- build_runtime_scenarios(cfg, override_mus = args$scenarios)
 runtime_mus <- vapply(runtime_scenarios, function(s) as.numeric(s$mu), numeric(1))
+runtime_years_raw <- args$years %||% cfg$simulation_years %||% 1L
+if (!is.numeric(runtime_years_raw) || length(runtime_years_raw) != 1 || !is.finite(runtime_years_raw) || runtime_years_raw < 1 || runtime_years_raw != as.integer(runtime_years_raw)) {
+  stop("`--years` (or `simulation_years` in config) must be a positive integer.")
+}
+runtime_years <- as.integer(runtime_years_raw)
+message("Simulating ", runtime_years, " year(s) per scenario.")
 
 all_shipments <- list()
 all_annual <- list()
+all_annual_by_year <- list()
 
 
 # What it does: For each prevalence p, builds scenario with chosen kappa, runs simulate_year, and stores shipment-level and annual summaries.
 # Why it matters: This is the key estimator: it generates simulated outcomes under the protocol and quantifies how often infected shipments pass undetected.
 # Limitation: Apparent single run per scenario seed sequence; unless simulate_year internally performs enough Monte Carlo replication, uncertainty may be under-characterized
 for (i in seq_along(runtime_scenarios)) {
-  sim <- simulate_year(seed = cfg$random_seed + i - 1, cfg = cfg, scenario = runtime_scenarios[[i]])
+  sim <- simulate_year(
+    seed = cfg$random_seed + i - 1,
+    cfg = cfg,
+    scenario = runtime_scenarios[[i]],
+    n_years = runtime_years
+  )
+
+  if (nrow(sim$annual_summary) != runtime_years) {
+    stop(
+      "simulate_year returned ", nrow(sim$annual_summary),
+      " annual row(s), expected ", runtime_years,
+      ". Re-source R/simulation.R and R/metrics.R to load updated functions."
+    )
+  }
+
+  if (nrow(sim$annual_by_year) != 1 || sim$annual_by_year$years_simulated[[1]] != runtime_years) {
+    stop(
+      "annual_by_year summary did not match requested years (expected ", runtime_years,
+      "). Re-source R/simulation.R and R/metrics.R to load updated functions."
+    )
+  }
+
   all_shipments[[i]] <- sim$shipment_level
   all_annual[[i]] <- sim$annual_summary
+  all_annual_by_year[[i]] <- sim$annual_by_year
 }
 
 # What it does: Combines scenario outputs; computes required sampling table and OC curve table based on effective sensitivity.
@@ -169,6 +200,7 @@ for (i in seq_along(runtime_scenarios)) {
 # Limitation: OC curve n-grid increments by 25 may be coarse; may miss fine threshold behavior near decision boundaries.
 shipment_level <- dplyr::bind_rows(all_shipments)
 annual_summary <- dplyr::bind_rows(all_annual)
+annual_by_year <- dplyr::bind_rows(all_annual_by_year)
 required_tbl <- required_n_table(shipment_level)
 upstream_tbl <- upstream_filtering_table(shipment_level, shipments_possible_basis = cfg$shipments_per_year$mean)
 oc_tbl <- oc_curve_table(p_values = runtime_mus, n_values = seq(0, max(shipment_level$n_required), by = 25), Se_eff = Se_eff(cfg))
@@ -196,14 +228,15 @@ sensitivity_tbl <- purrr::map_dfr(sensitivity_runs, function(run) {
     sim_i <- simulate_year(
       seed = cfg_i$random_seed + as.integer(abs(v) * 100),
       cfg = cfg_i,
-      scenario = list(mu = cfg_i$prevalence$mu, kappa = cfg_i$prevalence$kappa, label = "baseline")
+      scenario = list(mu = cfg_i$prevalence$mu, kappa = cfg_i$prevalence$kappa, label = "baseline"),
+      n_years = runtime_years
     )
 
-    ann <- sim_i$annual_summary
+    ann <- sim_i$annual_by_year
     tibble::tibble(
       parameter = run$parameter,
       value = v,
-      prob_any_infected_pass_undetected = ann$prob_any_infected_pass_undetected[[1]]
+      prob_any_infected_pass_undetected = ann$prob_any_infected_pass_undetected_mean[[1]]
     )
   })
 })
@@ -212,6 +245,7 @@ sensitivity_tbl <- purrr::map_dfr(sensitivity_runs, function(run) {
 if (isTRUE(cfg$outputs$save_csv)) {
   readr::write_csv(shipment_level, file.path(csv_dir, "shipment_level.csv"))
   readr::write_csv(annual_summary, file.path(csv_dir, "annual_summary.csv"))
+  readr::write_csv(annual_by_year, file.path(csv_dir, "annual_by_year.csv"))
   readr::write_csv(upstream_tbl, file.path(csv_dir, "upstream_filtering_summary.csv"))
 }
 
@@ -225,6 +259,7 @@ if (isTRUE(cfg$outputs$save_report)) {
   write_report(
     cfg = cfg,
     annual_summary = annual_summary,
+    annual_by_year = annual_by_year,
     required_tbl = required_tbl,
     oc_tbl = oc_tbl,
     sensitivity_tbl = sensitivity_tbl,

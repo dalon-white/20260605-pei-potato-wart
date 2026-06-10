@@ -33,6 +33,7 @@ merge_lists <- function(base, override) {
 #' @return Validated configuration.
 validate_cfg <- function(cfg) {
   stopifnot(is.numeric(cfg$random_seed), length(cfg$random_seed) == 1)
+  stopifnot(is.numeric(cfg$simulation_years), length(cfg$simulation_years) == 1, cfg$simulation_years >= 1)
   stopifnot(cfg$alpha > 0, cfg$alpha < 1)
   stopifnot(cfg$p0 > 0, cfg$p0 < 1)
   if (!is.null(cfg$scenario_p)) {

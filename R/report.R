@@ -3,13 +3,14 @@
 #' Write Markdown report with equations, assumptions, and results.
 #' @param cfg Configuration list.
 #' @param annual_summary Annual summary table.
+#' @param annual_by_year Across-year summary statistics table.
 #' @param required_tbl Required n table.
 #' @param oc_tbl OC curve table.
 #' @param sensitivity_tbl Sensitivity table.
 #' @param upstream_tbl Upstream filtering summary table.
 #' @param output_path Output markdown path.
 #' @return Output path.
-write_report <- function(cfg, annual_summary, required_tbl, oc_tbl, sensitivity_tbl, upstream_tbl = NULL, output_path = "outputs/report.md") {
+write_report <- function(cfg, annual_summary, annual_by_year = NULL, required_tbl, oc_tbl, sensitivity_tbl, upstream_tbl = NULL, output_path = "outputs/report.md") {
   upstream_lines <- if (is.null(upstream_tbl)) {
     character(0)
   } else {
@@ -17,6 +18,16 @@ write_report <- function(cfg, annual_summary, required_tbl, oc_tbl, sensitivity_
       "",
       "## Upstream shipment filtering (scenario summary)",
       paste(capture.output(print(upstream_tbl)), collapse = "\n")
+    )
+  }
+
+  annual_by_year_lines <- if (is.null(annual_by_year)) {
+    character(0)
+  } else {
+    c(
+      "",
+      "## Across-year variability summary",
+      paste(capture.output(print(annual_by_year)), collapse = "\n")
     )
   }
 
@@ -43,6 +54,7 @@ write_report <- function(cfg, annual_summary, required_tbl, oc_tbl, sensitivity_
     "",
     "## Key annual summary",
     paste(capture.output(print(annual_summary)), collapse = "\n"),
+    annual_by_year_lines,
     "",
     "## Required n vs N_asym (head)",
     paste(capture.output(print(utils::head(required_tbl, 20))), collapse = "\n"),

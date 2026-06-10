@@ -31,13 +31,14 @@ This repository provides a complete R analysis workflow to design and simulate a
 
 ### Annual simulation
 
-`simulate_year()` performs Monte Carlo at shipment level, including:
+`simulate_year()` performs Monte Carlo at shipment level for one or more years, including:
 1. Shipment count generation (overdispersed)
 2. Shipment mass draw and mean unit size → unit count
 3. Beta-binomial prevalence/clustering
 4. Upstream visual screening conditioning
 5. Border sampling and detection outcome
-6. Annual aggregation of risk and test burden
+6. Year-level aggregation of risk and test burden
+7. Multi-year aggregation across simulated years
 
 ## Usage
 
@@ -50,7 +51,7 @@ install.packages(c("yaml","dplyr","tidyr","purrr","ggplot2","stringr","tibble","
 Run end-to-end:
 
 ```bash
-Rscript scripts/run_cli.R --config config/default.yaml --seed 1234 --outputs_dir outputs
+Rscript scripts/run_cli.R --config config/default.yaml --seed 1234 --outputs_dir outputs --years 20
 ```
 
 Default scenario behavior:
@@ -64,10 +65,16 @@ Optional scenario override:
 Rscript scripts/run_cli.R --scenarios 0.001,0.01,0.1
 ```
 
+Multi-year control:
+
+- Set `simulation_years` in `config/default.yaml`, or
+- Pass `--years <n>` in CLI (overrides config value).
+
 ## Outputs
 
 - `outputs/csv/shipment_level.csv`
-- `outputs/csv/annual_summary.csv`
+- `outputs/csv/annual_summary.csv` (one row per simulated year and scenario)
+- `outputs/csv/annual_by_year.csv` (across-year summary statistics by scenario)
 - `outputs/csv/upstream_filtering_summary.csv`
 - `outputs/figures/required_n_vs_N.png`
 - `outputs/figures/oc_curve.png`

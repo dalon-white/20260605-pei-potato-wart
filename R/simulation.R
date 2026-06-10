@@ -97,12 +97,13 @@ simulate_shipment <- function(cfg, scenario) {
   )
 }
 
-#' Simulate one year of shipments.
+#' Simulate one or more years of shipments.
 #' @param seed Random seed.
 #' @param cfg Configuration list.
 #' @param scenario Optional list with mu and kappa overrides.
-#' @return List with shipment and annual summary data frames.
-simulate_year <- function(seed, cfg, scenario = NULL) {
+#' @param n_years Number of years to simulate.
+#' @return List with per-year results and across-year summary statistics.
+simulate_year <- function(seed, cfg, scenario = NULL, n_years = NULL) {
   set_seed(seed)
 
   normalize_scenario <- function(scn, cfg) {
@@ -131,14 +132,39 @@ simulate_year <- function(seed, cfg, scenario = NULL) {
 
   sc <- normalize_scenario(scenario, cfg)
 
-  n_shipments <- max(1L, r_overdispersed_counts(
-    mean = cfg$shipments_per_year$mean,
-    dispersion = cfg$shipments_per_year$dispersion
-  ))
+  years_raw <- n_years %||% cfg$simulation_years %||% 1L
+  if (!is.numeric(years_raw) || length(years_raw) != 1 || !is.finite(years_raw) || years_raw < 1 || years_raw != as.integer(years_raw)) {
+    stop("`n_years` must be a positive integer.")
+  }
+  years_to_simulate <- as.integer(years_raw)
 
-  shipment_df <- purrr::map_dfr(seq_len(n_shipments), ~simulate_shipment(cfg = cfg, scenario = sc))
+  simulate_one_year <- function(year_index) {
+    n_shipments <- max(1L, r_overdispersed_counts(
+      mean = cfg$shipments_per_year$mean,
+      dispersion = cfg$shipments_per_year$dispersion
+    ))
+
+    shipment_df <- purrr::map_dfr(seq_len(n_shipments), ~simulate_shipment(cfg = cfg, scenario = sc)) |>
+      dplyr::mutate(year = as.integer(year_index))
+
+    annual_df <- annual_metrics(
+      shipment_df,
+      shipments_possible_basis = cfg$shipments_per_year$mean
+    ) |>
+      dplyr::mutate(year = as.integer(year_index), .before = 1)
+
+    list(shipment_level = shipment_df, annual_summary = annual_df)
+  }
+
+  year_results <- purrr::map(seq_len(years_to_simulate), simulate_one_year)
+  shipment_df <- purrr::map_dfr(year_results, "shipment_level")
+  annual_summary <- purrr::map_dfr(year_results, "annual_summary")
+  annual_by_year <- annual_by_year_summary(annual_summary)
+
   list(
+    years = year_results,
     shipment_level = shipment_df,
-    annual_summary = annual_metrics(shipment_df, shipments_possible_basis = cfg$shipments_per_year$mean)
+    annual_by_year = annual_by_year,
+    annual_summary = annual_summary
   )
 }

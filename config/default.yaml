@@ -1,4 +1,5 @@
-random_seed: 1234
+random_seed: 1
+simulation_years: 20
 
 alpha: 0.05
 p0: 0.001
@@ -22,8 +23,8 @@ unit_size_oz:
   max: 32
 
 prevalence:
-  mu: 0.001
-  kappa: 500
+  mu: 0.0001
+  kappa: 0.01
   scenarios:
     - {mu: 0.001, kappa: 500}
     - {mu: 0.0001,  kappa: 0.01}
