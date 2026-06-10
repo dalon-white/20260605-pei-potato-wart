@@ -69,6 +69,71 @@ pick_kappa <- function(cfg, mu) {
   if (is.na(kappa_i)) cfg$prevalence$kappa else kappa_i
 }
 
+build_runtime_scenarios <- function(cfg, override_mus = NULL) {
+  get_field_num <- function(x, field) {
+    if (is.list(x) && !is.null(x[[field]])) {
+      return(as.numeric(x[[field]]))
+    }
+    if (is.atomic(x) && !is.null(names(x)) && field %in% names(x)) {
+      return(as.numeric(x[[field]]))
+    }
+    NA_real_
+  }
+
+  get_field_chr <- function(x, field) {
+    if (is.list(x) && !is.null(x[[field]])) {
+      return(as.character(x[[field]]))
+    }
+    if (is.atomic(x) && !is.null(names(x)) && field %in% names(x)) {
+      return(as.character(x[[field]]))
+    }
+    NA_character_
+  }
+
+  if (!is.null(override_mus)) {
+    override_mus <- as.numeric(override_mus)
+    if (any(!is.finite(override_mus))) {
+      stop("`--scenarios` values must be numeric and finite.")
+    }
+
+    return(lapply(seq_along(override_mus), function(i) {
+      mu_i <- override_mus[[i]]
+      list(mu = mu_i, kappa = pick_kappa(cfg, mu_i), label = sprintf("p=%.6g", mu_i))
+    }))
+  }
+
+  scn_cfg <- cfg$prevalence$scenarios
+  if (is.null(scn_cfg) || length(scn_cfg) == 0) {
+    return(list(list(
+      mu = as.numeric(cfg$prevalence$mu),
+      kappa = as.numeric(cfg$prevalence$kappa),
+      label = sprintf("mu=%.6g_kappa=%.6g", cfg$prevalence$mu, cfg$prevalence$kappa)
+    )))
+  }
+
+  out <- lapply(seq_along(scn_cfg), function(i) {
+    scn_i <- scn_cfg[[i]]
+    mu_i <- get_field_num(scn_i, "mu")
+    if (!is.finite(mu_i)) {
+      stop(sprintf("prevalence.scenarios[[%s]] is missing a valid `mu`.", i))
+    }
+
+    kappa_i <- get_field_num(scn_i, "kappa")
+    if (!is.finite(kappa_i)) {
+      kappa_i <- as.numeric(cfg$prevalence$kappa)
+    }
+
+    label_i <- get_field_chr(scn_i, "label")
+    if (!is.finite(nchar(label_i)) || nchar(label_i) == 0) {
+      label_i <- sprintf("p=%.6g", mu_i)
+    }
+
+    list(mu = as.numeric(mu_i), kappa = as.numeric(kappa_i), label = label_i)
+  })
+
+  out
+}
+
 
 # Load and finalize runtime configuration:
 args <- parse_args(commandArgs(trailingOnly = TRUE))
@@ -82,11 +147,9 @@ fig_dir <- file.path(out_dir, "figures")
 dir.create(csv_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 
-# Validate scenario prevalence values:
-scenario_ps <- as.numeric(args$scenarios %||% cfg$scenario_p)
-if (any(!is.finite(scenario_ps))) {
-  stop("`scenario_ps` must be numeric and finite.")
-}
+# Build runtime scenarios directly from prevalence.scenarios unless overridden by --scenarios:
+runtime_scenarios <- build_runtime_scenarios(cfg, override_mus = args$scenarios)
+runtime_mus <- vapply(runtime_scenarios, function(s) as.numeric(s$mu), numeric(1))
 
 all_shipments <- list()
 all_annual <- list()
@@ -95,10 +158,8 @@ all_annual <- list()
 # What it does: For each prevalence p, builds scenario with chosen kappa, runs simulate_year, and stores shipment-level and annual summaries.
 # Why it matters: This is the key estimator: it generates simulated outcomes under the protocol and quantifies how often infected shipments pass undetected.
 # Limitation: Apparent single run per scenario seed sequence; unless simulate_year internally performs enough Monte Carlo replication, uncertainty may be under-characterized
-for (i in seq_along(scenario_ps)) {
-  p <- scenario_ps[[i]]
-  scenario <- list(mu = p, kappa = pick_kappa(cfg, p), label = sprintf("p=%.4f", p))
-  sim <- simulate_year(seed = cfg$random_seed + i - 1, cfg = cfg, scenario = scenario)
+for (i in seq_along(runtime_scenarios)) {
+  sim <- simulate_year(seed = cfg$random_seed + i - 1, cfg = cfg, scenario = runtime_scenarios[[i]])
   all_shipments[[i]] <- sim$shipment_level
   all_annual[[i]] <- sim$annual_summary
 }
@@ -110,7 +171,7 @@ shipment_level <- dplyr::bind_rows(all_shipments)
 annual_summary <- dplyr::bind_rows(all_annual)
 required_tbl <- required_n_table(shipment_level)
 upstream_tbl <- upstream_filtering_table(shipment_level, shipments_possible_basis = cfg$shipments_per_year$mean)
-oc_tbl <- oc_curve_table(p_values = scenario_ps, n_values = seq(0, max(shipment_level$n_required), by = 25), Se_eff = Se_eff(cfg))
+oc_tbl <- oc_curve_table(p_values = runtime_mus, n_values = seq(0, max(shipment_level$n_required), by = 25), Se_eff = Se_eff(cfg))
 
 # What it does: Perturbs key parameters (visual sensitivity, molecular sensitivity, subsample sensitivity, asymptomatic fraction, kappa), reruns simulation, and records annual undetected risk metric.
 # Why it matters: Shows robustness of protection likelihood to uncertain assumptions; essential for policy confidence.

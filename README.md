@@ -53,6 +53,11 @@ Run end-to-end:
 Rscript scripts/run_cli.R --config config/default.yaml --seed 1234 --outputs_dir outputs
 ```
 
+Default scenario behavior:
+
+- `scripts/run_cli.R` runs scenarios from `prevalence.scenarios` in `config/default.yaml`.
+- If `prevalence.scenarios` is omitted, it falls back to `prevalence.mu` and `prevalence.kappa`.
+
 Optional scenario override:
 
 ```bash
@@ -63,6 +68,7 @@ Rscript scripts/run_cli.R --scenarios 0.001,0.01,0.1
 
 - `outputs/csv/shipment_level.csv`
 - `outputs/csv/annual_summary.csv`
+- `outputs/csv/upstream_filtering_summary.csv`
 - `outputs/figures/required_n_vs_N.png`
 - `outputs/figures/oc_curve.png`
 - `outputs/figures/annual_risk_sensitivity.png`

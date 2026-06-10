@@ -2,7 +2,6 @@ random_seed: 1234
 
 alpha: 0.05
 p0: 0.001
-scenario_p: [0.001, 0.01, 0.1]
 
 shipments_per_year:
   mean: 4600
@@ -27,8 +26,8 @@ prevalence:
   kappa: 500
   scenarios:
     - {mu: 0.001, kappa: 500}
-    - {mu: 0.01,  kappa: 300}
-    - {mu: 0.1,   kappa: 200}
+    - {mu: 0.0001,  kappa: 0.01}
+    - {mu: 0.00001,   kappa: 1}
 
 upstream_screen:
   Se_vis: 0.80
@@ -37,7 +36,9 @@ upstream_screen:
   f_asym_fixed: null
 
 border_testing:
+# sensitivity of the molecular test itself
   Se_mol: 1.00
+# sensitivity loss from the subsampling process (e.g., if only a portion of the sample is tested, or if there are inefficiencies in sample processing)
   Se_subsample: 1.00
 
 tiers:

@@ -35,7 +35,9 @@ validate_cfg <- function(cfg) {
   stopifnot(is.numeric(cfg$random_seed), length(cfg$random_seed) == 1)
   stopifnot(cfg$alpha > 0, cfg$alpha < 1)
   stopifnot(cfg$p0 > 0, cfg$p0 < 1)
-  stopifnot(is.numeric(cfg$scenario_p), all(cfg$scenario_p > 0), all(cfg$scenario_p < 1))
+  if (!is.null(cfg$scenario_p)) {
+    stopifnot(is.numeric(cfg$scenario_p), all(cfg$scenario_p > 0), all(cfg$scenario_p < 1))
+  }
 
   stopifnot(cfg$shipments_per_year$mean > 0)
   stopifnot(cfg$shipments_per_year$dispersion > 0)
@@ -45,6 +47,15 @@ validate_cfg <- function(cfg) {
 
   stopifnot(cfg$prevalence$mu > 0, cfg$prevalence$mu < 1)
   stopifnot(cfg$prevalence$kappa > 0)
+  if (!is.null(cfg$prevalence$scenarios) && length(cfg$prevalence$scenarios) > 0) {
+    for (i in seq_along(cfg$prevalence$scenarios)) {
+      sc <- cfg$prevalence$scenarios[[i]]
+      mu_i <- as.numeric(sc$mu %||% NA_real_)
+      kappa_i <- as.numeric(sc$kappa %||% cfg$prevalence$kappa)
+      stopifnot(is.finite(mu_i), mu_i > 0, mu_i < 1)
+      stopifnot(is.finite(kappa_i), kappa_i > 0)
+    }
+  }
 
   stopifnot(cfg$upstream_screen$Se_vis >= 0, cfg$upstream_screen$Se_vis <= 1)
   stopifnot(cfg$upstream_screen$Sp_vis >= 0, cfg$upstream_screen$Sp_vis <= 1)
